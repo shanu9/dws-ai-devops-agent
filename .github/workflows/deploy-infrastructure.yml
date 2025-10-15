@@ -1,0 +1,405 @@
+name: 🚀 Deploy Azure CAF Landing Zone
+
+on:
+  workflow_dispatch:
+    inputs:
+      customer_id:
+        description: 'Customer ID (3-6 lowercase alphanumeric)'
+        required: true
+        type: string
+      customer_name:
+        description: 'Customer Name'
+        required: true
+        type: string
+      customer_email:
+        description: 'Customer Email'
+        required: true
+        type: string
+      region:
+        description: 'Azure Region'
+        required: true
+        type: choice
+        options:
+          - eastus
+          - westus
+          - japaneast
+          - japanwest
+          - westeurope
+      package_tier:
+        description: 'Package Tier'
+        required: true
+        type: choice
+        default: 'standard'
+        options:
+          - basic
+          - standard
+          - premium
+      hub_vnet_cidr:
+        description: 'Hub VNet CIDR'
+        required: true
+        default: '10.1.0.0/16'
+        type: string
+      spoke_vnet_cidr:
+        description: 'Spoke VNet CIDR (Production)'
+        required: true
+        default: '10.2.0.0/16'
+        type: string
+
+env:
+  CUSTOMER_ID: ${{ github.event.inputs.customer_id }}
+  TF_VERSION: '1.6.6'
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+jobs:
+  # ==========================================================================
+  # JOB 1: VALIDATE
+  # ==========================================================================
+  validate:
+    name: 🔍 Validate & Estimate
+    runs-on: ubuntu-latest
+    outputs:
+      region_code: ${{ steps.map.outputs.region_code }}
+      estimated_cost: ${{ steps.cost.outputs.monthly_cost }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Customer ID
+        run: |
+          ID="${{ github.event.inputs.customer_id }}"
+          if [[ ! "$ID" =~ ^[a-z0-9]{3,6}$ ]]; then
+            echo "❌ ERROR: Customer ID must be 3-6 lowercase alphanumeric"
+            exit 1
+          fi
+          echo "✅ Valid customer ID: $ID"
+
+      - name: Map Region to Code
+        id: map
+        run: |
+          case "${{ github.event.inputs.region }}" in
+            eastus) echo "region_code=eus" >> $GITHUB_OUTPUT ;;
+            westus) echo "region_code=wus" >> $GITHUB_OUTPUT ;;
+            japaneast) echo "region_code=jpe" >> $GITHUB_OUTPUT ;;
+            japanwest) echo "region_code=jpw" >> $GITHUB_OUTPUT ;;
+            westeurope) echo "region_code=weu" >> $GITHUB_OUTPUT ;;
+            *) echo "region_code=eus" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Estimate Monthly Cost
+        id: cost
+        run: |
+          COST=0
+          PACKAGE="${{ github.event.inputs.package_tier }}"
+          
+          # Package-based pricing
+          case "$PACKAGE" in
+            basic)
+              COST=1500
+              echo "📦 Basic Package: \$1,500/month"
+              ;;
+            standard)
+              COST=3500
+              echo "📦 Standard Package: \$3,500/month"
+              ;;
+            premium)
+              COST=6500
+              echo "📦 Premium Package: \$6,500/month"
+              ;;
+          esac
+          
+          echo "monthly_cost=$COST" >> $GITHUB_OUTPUT
+          echo "💰 Estimated Monthly Cost: \$$COST USD"
+
+      - name: 📊 Cost Summary
+        run: |
+          echo "### 💰 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Customer:** ${{ github.event.inputs.customer_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** ${{ github.event.inputs.package_tier }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ github.event.inputs.region }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Estimated Cost:** \$${{ steps.cost.outputs.monthly_cost }}/month" >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================================================
+  # JOB 2: DEPLOY MANAGEMENT
+  # ==========================================================================
+  deploy-management:
+    name: 🔧 Deploy Management
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      central_workspace_id: ${{ steps.outputs.outputs.workspace_id }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Generate tfvars
+        run: |
+          mkdir -p terraform/environments/${{ env.CUSTOMER_ID }}/management
+          
+          cat > terraform/environments/${{ env.CUSTOMER_ID }}/management/terraform.tfvars <<EOF
+          customer_id = "${{ github.event.inputs.customer_id }}"
+          environment = "prd"
+          region      = "${{ github.event.inputs.region }}"
+          region_code = "${{ needs.validate.outputs.region_code }}"
+          
+          alert_email_receivers = ["${{ github.event.inputs.customer_email }}"]
+          monthly_budget_limit = ${{ needs.validate.outputs.estimated_cost }}
+          
+          # Multi-workspace logging
+          enable_central_law = true
+          central_law_retention_days = 90
+          
+          enable_audit_workspace = true
+          audit_workspace_daily_quota_gb = 20
+          
+          spoke_workspaces = {
+            "production" = {
+              retention_days = 90
+              daily_quota_gb = 50
+              cost_center    = "Production"
+            }
+          }
+          EOF
+
+      - name: Copy Management Module
+        run: |
+          cp terraform/modules/management/*.tf terraform/environments/${{ env.CUSTOMER_ID }}/management/
+
+      - name: Terraform Init
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/management
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${{ env.CUSTOMER_ID }}/management.tfstate"
+
+      - name: Terraform Apply
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/management
+          terraform apply -auto-approve
+          echo "✅ Management deployed"
+
+      - name: Get Outputs
+        id: outputs
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/management
+          WORKSPACE_ID=$(terraform output -raw central_workspace_id || echo "")
+          echo "workspace_id=$WORKSPACE_ID" >> $GITHUB_OUTPUT
+
+  # ==========================================================================
+  # JOB 3: DEPLOY HUB
+  # ==========================================================================
+  deploy-hub:
+    name: 🌐 Deploy Hub
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-management]
+    outputs:
+      hub_vnet_id: ${{ steps.outputs.outputs.vnet_id }}
+      firewall_ip: ${{ steps.outputs.outputs.firewall_ip }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Generate tfvars
+        run: |
+          mkdir -p terraform/environments/${{ env.CUSTOMER_ID }}/hub
+          
+          # Package-based configuration
+          PACKAGE="${{ github.event.inputs.package_tier }}"
+          ENABLE_BASTION="true"
+          ENABLE_VPN="false"
+          FIREWALL_SKU="Standard"
+          
+          if [ "$PACKAGE" = "premium" ]; then
+            FIREWALL_SKU="Premium"
+            ENABLE_VPN="true"
+          elif [ "$PACKAGE" = "basic" ]; then
+            ENABLE_BASTION="false"
+          fi
+          
+          cat > terraform/environments/${{ env.CUSTOMER_ID }}/hub/terraform.tfvars <<EOF
+          customer_id = "${{ github.event.inputs.customer_id }}"
+          environment = "prd"
+          region      = "${{ github.event.inputs.region }}"
+          region_code = "${{ needs.validate.outputs.region_code }}"
+          
+          hub_vnet_address_space = ["${{ github.event.inputs.hub_vnet_cidr }}"]
+          
+          firewall_sku_tier = "$FIREWALL_SKU"
+          enable_bastion = $ENABLE_BASTION
+          enable_vpn_gateway = $ENABLE_VPN
+          
+          log_analytics_workspace_id = "${{ needs.deploy-management.outputs.central_workspace_id }}"
+          EOF
+
+      - name: Copy Hub Module
+        run: |
+          cp terraform/modules/hub/*.tf terraform/environments/${{ env.CUSTOMER_ID }}/hub/
+
+      - name: Terraform Init
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/hub
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${{ env.CUSTOMER_ID }}/hub.tfstate"
+
+      - name: Terraform Apply
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/hub
+          terraform apply -auto-approve
+          echo "✅ Hub deployed"
+
+      - name: Get Outputs
+        id: outputs
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/hub
+          VNET_ID=$(terraform output -raw vnet_id || echo "")
+          FIREWALL_IP=$(terraform output -raw firewall_private_ip || echo "")
+          echo "vnet_id=$VNET_ID" >> $GITHUB_OUTPUT
+          echo "firewall_ip=$FIREWALL_IP" >> $GITHUB_OUTPUT
+
+  # ==========================================================================
+  # JOB 4: DEPLOY SPOKE
+  # ==========================================================================
+  deploy-spoke:
+    name: 📡 Deploy Spoke (Production)
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-management, deploy-hub]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Generate tfvars
+        run: |
+          mkdir -p terraform/environments/${{ env.CUSTOMER_ID }}/spokes/production
+          
+          # Package-based services
+          PACKAGE="${{ github.event.inputs.package_tier }}"
+          ENABLE_SQL="false"
+          ENABLE_KEYVAULT="true"
+          ENABLE_DATAFACTORY="false"
+          ENABLE_STORAGE="false"
+          
+          case "$PACKAGE" in
+            basic)
+              ENABLE_KEYVAULT="true"
+              ;;
+            standard)
+              ENABLE_SQL="true"
+              ENABLE_KEYVAULT="true"
+              ENABLE_DATAFACTORY="true"
+              ENABLE_STORAGE="true"
+              ;;
+            premium)
+              ENABLE_SQL="true"
+              ENABLE_KEYVAULT="true"
+              ENABLE_DATAFACTORY="true"
+              ENABLE_STORAGE="true"
+              ;;
+          esac
+          
+          cat > terraform/environments/${{ env.CUSTOMER_ID }}/spokes/production/terraform.tfvars <<EOF
+          customer_id = "${{ github.event.inputs.customer_id }}"
+          environment = "prd"
+          spoke_name  = "production"
+          region      = "${{ github.event.inputs.region }}"
+          region_code = "${{ needs.validate.outputs.region_code }}"
+          
+          spoke_vnet_address_space = ["${{ github.event.inputs.spoke_vnet_cidr }}"]
+          
+          # Hub connectivity
+          hub_vnet_id = "${{ needs.deploy-hub.outputs.hub_vnet_id }}"
+          hub_firewall_private_ip = "${{ needs.deploy-hub.outputs.firewall_ip }}"
+          
+          # Services
+          enable_sql = $ENABLE_SQL
+          enable_keyvault = $ENABLE_KEYVAULT
+          enable_datafactory = $ENABLE_DATAFACTORY
+          enable_storage = $ENABLE_STORAGE
+          
+          log_analytics_workspace_id = "${{ needs.deploy-management.outputs.central_workspace_id }}"
+          EOF
+
+      - name: Copy Spoke Template
+        run: |
+          cp terraform/environments/_template/spokes/production/*.tf terraform/environments/${{ env.CUSTOMER_ID }}/spokes/production/ || true
+
+      - name: Terraform Init
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/spokes/production
+          terraform init \
+            -backend-config="resource_group_name=${{ secrets.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${{ env.CUSTOMER_ID }}/spoke-production.tfstate"
+
+      - name: Terraform Apply
+        run: |
+          cd terraform/environments/${{ env.CUSTOMER_ID }}/spokes/production
+          terraform apply -auto-approve
+          echo "✅ Spoke deployed"
+
+  # ==========================================================================
+  # JOB 5: NOTIFY
+  # ==========================================================================
+  notify:
+    name: 📧 Send Notification
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-management, deploy-hub, deploy-spoke]
+    if: always()
+    
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "# 🎉 Deployment Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Customer:** ${{ github.event.inputs.customer_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ID:** ${{ github.event.inputs.customer_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** ${{ github.event.inputs.package_tier }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ github.event.inputs.region }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cost:** \$${{ needs.validate.outputs.estimated_cost }}/month" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Deployed Components" >> $GITHUB_STEP_SUMMARY
+          echo "- Management Subscription (Logging, Cost, Policy)" >> $GITHUB_STEP_SUMMARY
+          echo "- Hub Subscription (Firewall, Networking)" >> $GITHUB_STEP_SUMMARY
+          echo "- Spoke Subscription (Production workloads)" >> $GITHUB_STEP_SUMMARY
