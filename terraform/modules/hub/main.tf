@@ -101,21 +101,14 @@ resource "azurerm_virtual_network" "hub" {
   resource_group_name = azurerm_resource_group.hub.name
   address_space       = var.hub_vnet_address_space
   
-
-  tags = merge(
-    local.common_tags,
-    {
-      Name = local.vnet_name
-      Purpose = "Hub network for centralized connectivity"
-    }
-  )
+  dns_servers = var.enable_firewall_dns_proxy ? [azurerm_firewall.hub.ip_configuration[0].private_ip_address] : []
   
-  # Best practice: Prevent accidental deletion
-  lifecycle {
-    prevent_destroy = false # Set to true in production
-  }
+  tags = merge(local.common_tags, {
+    Name    = local.vnet_name
+    Purpose = "Hub network for centralized connectivity"
+  })
   
-  depends_on = [azurerm_resource_group.hub]
+  depends_on = [azurerm_firewall.hub]
 }
 
 # DDoS Protection Plan (Optional - High Cost)

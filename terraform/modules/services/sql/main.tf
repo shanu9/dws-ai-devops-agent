@@ -29,6 +29,14 @@ resource "random_string" "sql_suffix" {
   special = false
   upper   = false
 }
+# Store in Key Vault (must accept keyvault_id from spoke)
+resource "azurerm_key_vault_secret" "sql_password" {
+  name         = "${local.sql_server_name}-admin-password"
+  value        = random_password.sql_admin.result
+  key_vault_id = var.key_vault_id  # Pass from spoke deployment
+  
+  tags = local.common_tags
+}
 
 resource "azurerm_mssql_server" "main" {
   name                         = "${local.sql_server_name}-${random_string.sql_suffix.result}"

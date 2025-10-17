@@ -131,28 +131,15 @@ resource "azurerm_virtual_network" "spoke" {
   resource_group_name = local.resource_group_name_final
   address_space       = var.spoke_vnet_address_space
   
-  # DNS servers - Use Hub Firewall for DNS (if DNS proxy enabled)
+  
   dns_servers = [var.hub_firewall_private_ip]
   
-  # DDoS Protection (if enabled in Hub)
-  dynamic "ddos_protection_plan" {
-    for_each = var.enable_ddos_protection && var.ddos_protection_plan_id != null ? [1] : []
-    content {
-      id     = var.ddos_protection_plan_id
-      enable = true
-    }
-  }
-  
-  tags = merge(
-    local.common_tags,
-    {
-      Name    = local.vnet_name
-      Purpose = "Spoke VNet for ${var.spoke_name} workloads"
-    }
-  )
+  tags = merge(local.common_tags, {
+    Name = local.vnet_name
+  })
   
   lifecycle {
-    prevent_destroy = false # Set to true in production
+    prevent_destroy = false  # Set true in production
   }
 }
 
@@ -636,20 +623,21 @@ resource "azurerm_subnet_route_table_association" "aks" {
 
 # Spoke to Hub peering
 resource "azurerm_virtual_network_peering" "spoke_to_hub" {
-  name                         = local.spoke_to_hub_peering_name
-  resource_group_name          = local.resource_group_name_final
-  virtual_network_name         = azurerm_virtual_network.spoke.name
-  remote_virtual_network_id    = var.hub_vnet_id
-  
+  name                      = "peer-${local.naming_prefix}-to-hub"
+  resource_group_name       = local.resource_group_name_final
+  virtual_network_name      = azurerm_virtual_network.spoke.name
+  remote_virtual_network_id = var.hub_vnet_id
+
   allow_virtual_network_access = true
   allow_forwarded_traffic      = var.allow_forwarded_traffic
   allow_gateway_transit        = var.allow_gateway_transit
-  use_remote_gateways          = var.use_remote_gateways
+  use_remote_gateways          = var.use_remote_gateways && var.enable_vpn_gateway
   
   depends_on = [
-    azurerm_subnet.database,
-    azurerm_subnet.private,
-    azurerm_subnet.application
+    azurerm_virtual_network.spoke,
+    azurerm_route_table.database,
+    azurerm_route_table.private,
+    azurerm_route_table.application
   ]
 }
 
