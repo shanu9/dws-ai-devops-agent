@@ -70,7 +70,33 @@ variable "gateway_subnet_prefix" {
 # =============================================================================
 # FIREWALL CONFIGURATION
 # =============================================================================
-
+variable "firewall_rules" {
+  description = "Firewall policy rules"
+  type = object({
+    application_rules = list(object({
+      name              = string
+      priority          = number
+      source_addresses  = list(string)
+      destination_fqdns = list(string)
+      protocols = list(object({
+        type = string
+        port = number
+      }))
+    }))
+    network_rules = list(object({
+      name                  = string
+      priority              = number
+      protocols             = list(string)
+      source_addresses      = list(string)
+      destination_addresses = list(string)
+      destination_ports     = list(string)
+    }))
+  })
+  default = {
+    application_rules = []
+    network_rules     = []
+  }
+}
 variable "firewall_sku_tier" {
   description = "Azure Firewall SKU tier (Standard/Premium). Premium adds TLS inspection, IDPS."
   type        = string
