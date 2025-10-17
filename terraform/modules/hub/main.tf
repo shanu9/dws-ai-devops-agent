@@ -101,14 +101,28 @@ resource "azurerm_virtual_network" "hub" {
   resource_group_name = azurerm_resource_group.hub.name
   address_space       = var.hub_vnet_address_space
   
-  dns_servers = var.enable_firewall_dns_proxy ? [azurerm_firewall.hub.ip_configuration[0].private_ip_address] : []
   
-  tags = merge(local.common_tags, {
-    Name    = local.vnet_name
-    Purpose = "Hub network for centralized connectivity"
-  })
+  dns_servers = var.enable_firewall_dns_proxy ? [
+    azurerm_firewall.hub.ip_configuration[0].private_ip_address
+  ] : []
+
+  tags = merge(
+    local.common_tags,
+    {
+      Name = local.vnet_name
+      Purpose = "Hub network for centralized connectivity"
+    }
+  )
   
-  depends_on = [azurerm_firewall.hub]
+  # Best practice: Prevent accidental deletion
+  lifecycle {
+    prevent_destroy = false # Set to true in production
+  }
+  
+  depends_on = [
+    azurerm_resource_group.hub,
+    azurerm_firewall.hub
+  ]
 }
 
 # DDoS Protection Plan (Optional - High Cost)
@@ -278,53 +292,7 @@ resource "azurerm_monitor_diagnostic_setting" "firewall" {
     enabled  = true
   }
 }
-resource "azurerm_firewall_policy_rule_collection_group" "custom" {
-  count = length(var.firewall_rules.application_rules) > 0 || length(var.firewall_rules.network_rules) > 0 ? 1 : 0
-  
-  name               = "customer-rules"
-  firewall_policy_id = azurerm_firewall_policy.hub.id
-  priority           = 100
 
-  dynamic "application_rule_collection" {
-    for_each = var.firewall_rules.application_rules
-    content {
-      name     = application_rule_collection.value.name
-      priority = application_rule_collection.value.priority
-      action   = "Allow"
-      
-      rule {
-        name              = application_rule_collection.value.name
-        source_addresses  = application_rule_collection.value.source_addresses
-        destination_fqdns = application_rule_collection.value.destination_fqdns
-        
-        dynamic "protocols" {
-          for_each = application_rule_collection.value.protocols
-          content {
-            type = protocols.value.type
-            port = protocols.value.port
-          }
-        }
-      }
-    }
-  }
-
-  dynamic "network_rule_collection" {
-    for_each = var.firewall_rules.network_rules
-    content {
-      name     = network_rule_collection.value.name
-      priority = network_rule_collection.value.priority
-      action   = "Allow"
-      
-      rule {
-        name                  = network_rule_collection.value.name
-        protocols             = network_rule_collection.value.protocols
-        source_addresses      = network_rule_collection.value.source_addresses
-        destination_addresses = network_rule_collection.value.destination_addresses
-        destination_ports     = network_rule_collection.value.destination_ports
-      }
-    }
-  }
-}
 # -----------------------------------------------------------------------------
 # AZURE BASTION - Secure VM Access
 # -----------------------------------------------------------------------------

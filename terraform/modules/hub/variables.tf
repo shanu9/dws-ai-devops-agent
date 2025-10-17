@@ -70,33 +70,7 @@ variable "gateway_subnet_prefix" {
 # =============================================================================
 # FIREWALL CONFIGURATION
 # =============================================================================
-variable "firewall_rules" {
-  description = "Firewall policy rules"
-  type = object({
-    application_rules = list(object({
-      name              = string
-      priority          = number
-      source_addresses  = list(string)
-      destination_fqdns = list(string)
-      protocols = list(object({
-        type = string
-        port = number
-      }))
-    }))
-    network_rules = list(object({
-      name                  = string
-      priority              = number
-      protocols             = list(string)
-      source_addresses      = list(string)
-      destination_addresses = list(string)
-      destination_ports     = list(string)
-    }))
-  })
-  default = {
-    application_rules = []
-    network_rules     = []
-  }
-}
+
 variable "firewall_sku_tier" {
   description = "Azure Firewall SKU tier (Standard/Premium). Premium adds TLS inspection, IDPS."
   type        = string
@@ -316,4 +290,58 @@ variable "enable_zone_redundancy" {
   description = "Enable zone redundancy for all supported resources (higher cost, better SLA)"
   type        = bool
   default     = true # Best practice: Enabled by default
+}
+
+# =============================================================================
+# FIREWALL RULES CONFIGURATION (Dynamic Multi-Tenant)
+# =============================================================================
+
+variable "firewall_rules" {
+  description = "Dynamic firewall policy rules (application and network rules)"
+  type = object({
+    application_rules = list(object({
+      name              = string
+      priority          = number
+      source_addresses  = list(string)
+      destination_fqdns = list(string)
+      protocols = list(object({
+        type = string
+        port = number
+      }))
+    }))
+    network_rules = list(object({
+      name                  = string
+      priority              = number
+      protocols             = list(string)
+      source_addresses      = list(string)
+      destination_addresses = list(string)
+      destination_ports     = list(string)
+    }))
+  })
+  default = {
+    application_rules = []
+    network_rules     = []
+  }
+  
+  validation {
+    condition = (
+      length(var.firewall_rules.application_rules) == 0 ||
+      alltrue([for rule in var.firewall_rules.application_rules : rule.priority >= 100 && rule.priority <= 65000])
+    )
+    error_message = "Application rule priorities must be between 100 and 65000."
+  }
+  
+  validation {
+    condition = (
+      length(var.firewall_rules.network_rules) == 0 ||
+      alltrue([for rule in var.firewall_rules.network_rules : rule.priority >= 100 && rule.priority <= 65000])
+    )
+    error_message = "Network rule priorities must be between 100 and 65000."
+  }
+}
+
+variable "enable_default_firewall_rules" {
+  description = "Enable default allow rules (Azure services, DNS, NTP)"
+  type        = bool
+  default     = true
 }

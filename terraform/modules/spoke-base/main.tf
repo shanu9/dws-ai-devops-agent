@@ -124,25 +124,35 @@ locals {
 # -----------------------------------------------------------------------------
 # SPOKE VIRTUAL NETWORK
 # -----------------------------------------------------------------------------
-
 resource "azurerm_virtual_network" "spoke" {
   name                = local.vnet_name
   location            = local.resource_group_location
   resource_group_name = local.resource_group_name_final
   address_space       = var.spoke_vnet_address_space
   
-  
+  # ✅ CRITICAL FIX: Point DNS to Hub Firewall for Private DNS resolution
   dns_servers = [var.hub_firewall_private_ip]
   
-  tags = merge(local.common_tags, {
-    Name = local.vnet_name
-  })
+  dynamic "ddos_protection_plan" {
+    for_each = var.enable_ddos_protection && var.ddos_protection_plan_id != null ? [1] : []
+    content {
+      id     = var.ddos_protection_plan_id
+      enable = true
+    }
+  }
+  
+  tags = merge(
+    local.common_tags,
+    {
+      Name    = local.vnet_name
+      Purpose = "Spoke VNet for ${var.spoke_name} workloads"
+    }
+  )
   
   lifecycle {
-    prevent_destroy = false  # Set true in production
+    prevent_destroy = false # Set to true in production
   }
 }
-
 # =============================================================================
 # NETWORK SECURITY GROUPS (NSGs) - Per Subnet
 # =============================================================================
