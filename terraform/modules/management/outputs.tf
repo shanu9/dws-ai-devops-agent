@@ -486,7 +486,6 @@ output "table_retention_config" {
 # =============================================================================
 # SUMMARY OUTPUT (Human-Readable)
 # =============================================================================
-
 output "deployment_summary" {
   description = "Human-readable deployment summary"
   value       = <<-EOT
@@ -501,9 +500,8 @@ output "deployment_summary" {
     Central Workspace:    ${var.enable_central_law ? azurerm_log_analytics_workspace.central[0].name : "Disabled"}
     Retention (Central):  ${var.central_law_retention_days} days
     Team Workspaces:      ${var.enable_team_workspaces ? length(var.team_workspaces) : 0}
-      - Operations:       ${var.enable_team_workspaces ? "${var.team_workspaces["operations"].retention_days} days" : "N/A"}
-      - Security:         ${var.enable_team_workspaces ? "${var.team_workspaces["security"].retention_days} days" : "N/A"}
-      - Audit:            ${var.enable_team_workspaces ? "${var.team_workspaces["audit"].retention_days} days" : "N/A"}
+      - Operations:       ${var.enable_team_workspaces && contains(keys(var.team_workspaces), "operations") ? "${var.team_workspaces["operations"].retention_days} days" : "N/A"}
+      - Security:         ${var.enable_team_workspaces && contains(keys(var.team_workspaces), "security") ? "${var.team_workspaces["security"].retention_days} days" : "N/A"}
     
     MONITORING:
     Action Groups:        ${var.enable_action_groups ? "Enabled" : "Disabled"}
@@ -529,4 +527,3 @@ output "deployment_summary" {
     ============================================================
   EOT
 }
-

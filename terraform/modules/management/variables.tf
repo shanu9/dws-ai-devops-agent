@@ -69,7 +69,7 @@ variable "central_law_retention_days" {
 variable "central_law_daily_quota_gb" {
   description = "Daily ingestion quota in GB for central LAW (cost control). -1 = unlimited"
   type        = number
-  default     = -1
+  default     = 50
 }
 
 # Per-Team Log Analytics Workspaces (From your diagram)
@@ -88,19 +88,14 @@ variable "team_workspaces" {
   }))
   default = {
     "operations" = {
-      retention_days = 90 # LAW-TeamA-Operations (90 days)
-      daily_quota_gb = 50
+      retention_days = 90
+      daily_quota_gb = 30
       purpose        = "Operational logs and metrics"
     }
     "security" = {
-      retention_days = 730 # LAW-TeamA-Security (2 years)
-      daily_quota_gb = 100
+      retention_days = 730
+      daily_quota_gb = 50
       purpose        = "Security and compliance logs"
-    }
-    "audit" = {
-      retention_days = 2555 # LAW-TeamB-Audit (7 years) - compliance requirement
-      daily_quota_gb = 30
-      purpose        = "Audit and regulatory logs"
     }
   }
 }
@@ -109,27 +104,24 @@ variable "team_workspaces" {
 variable "enable_table_retention" {
   description = "Enable different retention per table type (e.g., Security 2yr, Perf 30d)"
   type        = bool
-  default     = true
+  default     = false  # Disabled to avoid complexity
 }
 
 variable "table_retention_overrides" {
   description = "Specific retention per table type for cost optimization"
   type = map(object({
     retention_days = number
-    archive_days   = number # Archive to cheaper storage after N days
+    archive_days   = number
   }))
   default = {
-    # Security tables - long retention
     "SecurityEvent" = {
-      retention_days = 730 # 2 years active
-      archive_days   = 365 # Archive after 1 year
+      retention_days = 730
+      archive_days   = 365
     }
     "AuditLogs" = {
-      retention_days = 2555 # 7 years (compliance)
-      archive_days   = 730
+      retention_days = 730
+      archive_days   = 365
     }
-
-    # Operational tables - short retention
     "Perf" = {
       retention_days = 30
       archive_days   = 0
@@ -138,8 +130,6 @@ variable "table_retention_overrides" {
       retention_days = 30
       archive_days   = 0
     }
-
-    # Firewall logs - medium retention
     "AzureFirewallApplicationRule" = {
       retention_days = 90
       archive_days   = 60
@@ -148,8 +138,6 @@ variable "table_retention_overrides" {
       retention_days = 90
       archive_days   = 60
     }
-
-    # Cost management - keep long for trend analysis
     "AzureCostManagement" = {
       retention_days = 365
       archive_days   = 180
@@ -174,7 +162,7 @@ variable "cost_allocation_tags" {
       cost_center  = "Production-Workloads"
       team         = "TeamA-Operations"
       chargeback   = true
-      budget_alert = 50000 # Alert at $50K/month
+      budget_alert = 50000
     }
     "spoke-dev" = {
       cost_center  = "Development"
@@ -264,8 +252,8 @@ variable "alert_rules" {
         | where TodayCost > AvgCost * 1.5
       QUERY
       severity    = 2
-      frequency   = 60
-      time_window = 120
+      frequency   = 30
+      time_window = 30
       threshold   = 1
     }
   }
@@ -322,7 +310,7 @@ variable "enable_defender" {
 variable "defender_plans" {
   description = "Defender plans to enable with pricing tier"
   type = map(object({
-    tier    = string # Free or Standard
+    tier    = string
     enabled = bool
   }))
   default = {
@@ -336,7 +324,7 @@ variable "defender_plans" {
     }
     "AppServices" = {
       tier    = "Standard"
-      enabled = true
+      enabled = false
     }
     "StorageAccounts" = {
       tier    = "Standard"
@@ -347,7 +335,7 @@ variable "defender_plans" {
       enabled = true
     }
     "KubernetesService" = {
-      tier    = "Free" # Cost optimization
+      tier    = "Free"
       enabled = false
     }
   }
@@ -396,13 +384,13 @@ variable "enable_cost_management" {
 variable "enable_budgets" {
   description = "Create cost budgets with alerts"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "monthly_budget_limit" {
   description = "Monthly budget limit in USD for entire customer deployment"
   type        = number
-  default     = 0 # 0 = no limit
+  default     = 0
 }
 
 variable "budget_alert_thresholds" {
@@ -418,7 +406,7 @@ variable "budget_alert_thresholds" {
 variable "enable_rbac_assignments" {
   description = "Configure RBAC for centralized management"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "management_read_only_groups" {
@@ -431,9 +419,8 @@ variable "log_analytics_readers" {
   description = "Azure AD groups/users with LAW read access (from your diagram)"
   type        = map(list(string))
   default = {
-    "operations" = [] # TeamA-Operations read access
-    "security"   = [] # TeamA-Security read access
-    "audit"      = [] # TeamB-Audit read access
+    "operations" = []
+    "security"   = []
   }
 }
 
@@ -450,7 +437,7 @@ variable "enable_log_export" {
 variable "log_export_retention_days" {
   description = "Storage account retention for exported logs (cheaper than LAW)"
   type        = number
-  default     = 2555 # 7 years in blob storage (compliance)
+  default     = 365
 }
 
 variable "enable_event_hub_export" {
@@ -498,7 +485,7 @@ variable "commitment_tier_gb" {
 variable "enable_basic_logs" {
   description = "Use Basic logs tier for high-volume, low-query logs (80% cost savings)"
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "basic_log_tables" {
@@ -510,8 +497,9 @@ variable "basic_log_tables" {
     "AppServiceHTTPLogs"
   ]
 }
+
 # =============================================================================
-# MULTI-WORKSPACE LOGGING VARIABLES (Add to existing file)
+# MULTI-WORKSPACE LOGGING VARIABLES
 # =============================================================================
 
 variable "spoke_workspaces" {
@@ -541,9 +529,15 @@ variable "spoke_workspaces" {
 }
 
 variable "enable_audit_workspace" {
-  description = "Enable dedicated audit workspace with 7-year retention"
+  description = "Enable dedicated audit workspace with long retention"
   type        = bool
   default     = true
+}
+
+variable "audit_workspace_retention_days" {
+  description = "Retention days for audit workspace (max 730)"
+  type        = number
+  default     = 730
 }
 
 variable "audit_workspace_daily_quota_gb" {

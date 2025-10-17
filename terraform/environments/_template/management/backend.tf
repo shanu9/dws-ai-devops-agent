@@ -1,10 +1,11 @@
 terraform {
   backend "azurerm" {
     resource_group_name  = "rg-terraform-state"
-    storage_account_name = "sttfstate${customer_id}"
+    storage_account_name = "sttfstate78a1dec0" 
     container_name       = "tfstate"
-    key                  = "${customer_id}/management.tfstate"
+    key                  = "management.tfstate"
   }
+}
   
   required_version = ">= 1.5.0"
   
