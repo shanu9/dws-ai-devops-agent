@@ -100,11 +100,6 @@ resource "azurerm_virtual_network" "hub" {
   location            = azurerm_resource_group.hub.location
   resource_group_name = azurerm_resource_group.hub.name
   address_space       = var.hub_vnet_address_space
-  
-  
-  dns_servers = var.enable_firewall_dns_proxy ? [
-    azurerm_firewall.hub.ip_configuration[0].private_ip_address
-  ] : []
 
   tags = merge(
     local.common_tags,
@@ -119,10 +114,7 @@ resource "azurerm_virtual_network" "hub" {
     prevent_destroy = false # Set to true in production
   }
   
-  depends_on = [
-    azurerm_resource_group.hub,
-    azurerm_firewall.hub
-  ]
+ 
 }
 
 # DDoS Protection Plan (Optional - High Cost)
@@ -364,7 +356,12 @@ resource "azurerm_monitor_diagnostic_setting" "bastion" {
     enabled  = true
   }
 }
-
+resource "azurerm_virtual_network_dns_servers" "hub" {
+  count = var.enable_firewall_dns_proxy ? 1 : 0
+  
+  virtual_network_id = azurerm_virtual_network.hub.id
+  dns_servers        = [azurerm_firewall.hub.ip_configuration[0].private_ip_address]
+}
 # -----------------------------------------------------------------------------
 # VPN GATEWAY - On-Premises Connectivity
 # -----------------------------------------------------------------------------

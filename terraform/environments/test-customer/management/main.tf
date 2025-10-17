@@ -17,6 +17,7 @@ module "management" {
   central_law_retention_days = 90
   central_law_daily_quota_gb = 50
   
+  # Team workspaces
   enable_team_workspaces = true
   team_workspaces = {
     "operations" = {
@@ -30,6 +31,10 @@ module "management" {
       purpose        = "Security logs"
     }
   }
+  
+  # ✅ Multi-workspace features - DISABLED
+  enable_log_forwarding  = false
+  enable_audit_workspace = false
   
   # Cost allocation
   enable_cost_splitting = true
@@ -48,8 +53,8 @@ module "management" {
     }
   }
   
-  # Long-term archival (FIXED - max 365 days for blob storage)
-  enable_log_export         = true
+  # ✅ Log export - DISABLED (conflicts with existing)
+  enable_log_export         = false
   log_export_retention_days = 365
   
   # Monitoring & Alerts
@@ -57,9 +62,11 @@ module "management" {
   enable_kql_alert_rules = true
   alert_email_receivers  = ["shanumodi9@gmail.com"]
   
+  # ✅ Azure Policy - DISABLED (invalid policy names)
+  enable_azure_policy = false
+  
   # Security
-  enable_azure_policy = true
-  enable_defender     = true
+  enable_defender = true
   defender_plans = {
     "VirtualMachines"  = { tier = "Standard", enabled = true }
     "SqlServers"       = { tier = "Standard", enabled = true }
@@ -70,7 +77,7 @@ module "management" {
   # Backup
   enable_backup_vault = true
   
-  # Cost Management (disabled to avoid budget errors)
+  # Cost Management
   enable_budgets       = false
   monthly_budget_limit = 0
   

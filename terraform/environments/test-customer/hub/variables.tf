@@ -1,49 +1,59 @@
-# Customer-specific variables (values in terraform.tfvars)
-
 variable "customer_id" {
-  description = "Customer identifier (3-6 chars)"
-  type        = string
+  type = string
 }
 
 variable "environment" {
-  description = "Environment: dev/stg/prd"
-  type        = string
-  default     = "prd"
+  type = string
 }
 
 variable "region" {
-  description = "Azure region"
-  type        = string
+  type = string
 }
 
 variable "region_code" {
-  description = "Region code (eus, jpe, etc.)"
-  type        = string
+  type = string
 }
 
 variable "hub_vnet_cidr" {
-  description = "Hub VNet CIDR"
-  type        = string
-  default     = "10.0.0.0/16"
+  type = string
 }
 
 variable "firewall_sku" {
-  description = "Firewall SKU: Standard or Premium"
-  type        = string
-  default     = "Standard"
+  type = string
 }
 
 variable "enable_bastion" {
-  type    = bool
-  default = true
+  type = bool
 }
 
 variable "enable_vpn_gateway" {
-  type    = bool
-  default = false
+  type = bool
 }
 
-variable "alert_email" {
-  description = "Email for alerts"
+# Backend configuration
+variable "state_storage_account_name" {
+  description = "Storage account name for Terraform state"
+  type        = string
+}
+
+variable "state_resource_group" {
+  description = "Resource group containing state storage"
+  type        = string
+  default     = "rg-terraform-state"
+}
+
+variable "state_container_name" {
+  description = "Container name for state files"
+  type        = string
+  default     = "tfstate"
+}
+
+variable "management_state_key" {
+  description = "State file key for management deployment"
+  type        = string
+  default     = "management.tfstate"
+}
+variable "log_analytics_workspace_id" {
+  description = "Log Analytics Workspace ID from Management deployment"
   type        = string
 }

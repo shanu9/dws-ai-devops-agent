@@ -402,7 +402,7 @@ resource "azurerm_management_group_policy_assignment" "caf_policies" {
   name                 = "policy-${each.key}"
   management_group_id  = azurerm_management_group.customer[0].id
   policy_definition_id = "/providers/Microsoft.Authorization/policyDefinitions/${each.key}"
-
+  location             = var.region
   parameters = jsonencode({
     effect = {
       value = var.policy_assignment_mode
@@ -441,12 +441,7 @@ resource "azurerm_security_center_subscription_pricing" "defender" {
   resource_type = each.key
 }
 
-# Defender Auto-Provisioning
-resource "azurerm_security_center_auto_provisioning" "agents" {
-  count = var.enable_defender ? 1 : 0
 
-  auto_provision = "On"
-}
 
 # Defender Workspace Connection
 resource "azurerm_security_center_workspace" "main" {

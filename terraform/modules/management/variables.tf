@@ -209,30 +209,9 @@ variable "enable_kql_alert_rules" {
 
 # Predefined alert rules (from your architecture)
 variable "alert_rules" {
-  description = "KQL alert queries for proactive monitoring"
-  type = map(object({
-    query       = string
-    severity    = number
-    frequency   = number
-    time_window = number
-    threshold   = number
-  }))
   default = {
-    "high-firewall-denies" = {
-      query       = <<-QUERY
-        AzureFirewallNetworkRule
-        | where Action == "Deny"
-        | summarize DenyCount = count() by bin(TimeGenerated, 5m)
-        | where DenyCount > 100
-      QUERY
-      severity    = 2
-      frequency   = 5
-      time_window = 15
-      threshold   = 100
-    }
-
     "vm-high-cpu" = {
-      query       = <<-QUERY
+      query = <<-QUERY
         Perf
         | where ObjectName == "Processor" and CounterName == "% Processor Time"
         | where CounterValue > 90
@@ -243,22 +222,12 @@ variable "alert_rules" {
       time_window = 15
       threshold   = 90
     }
-
-    "cost-spike-detected" = {
-      query       = <<-QUERY
-        AzureCostManagement
-        | summarize TodayCost = sum(Cost) by bin(TimeGenerated, 1d)
-        | extend AvgCost = avg(TodayCost)
-        | where TodayCost > AvgCost * 1.5
-      QUERY
-      severity    = 2
-      frequency   = 30
-      time_window = 30
-      threshold   = 1
-    }
-  }
+  }  
 }
 
+# =============================================================================
+# AZURE POLICY & GOVERNANCE
+# =============================================================================
 # =============================================================================
 # AZURE POLICY & GOVERNANCE
 # =============================================================================

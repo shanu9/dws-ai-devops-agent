@@ -11,7 +11,7 @@
 # -----------------------------------------------------------------------------
 
 resource "azurerm_network_security_rule" "database_custom" {
-  for_each = { for idx, rule in lookup(var.custom_nsg_rules, "database", []) : rule.name => rule }
+  for_each = { for idx, rule in try(var.custom_nsg_rules["database"], []) : rule.name => rule }
   
   name                        = each.value.name
   priority                    = each.value.priority
@@ -33,7 +33,7 @@ resource "azurerm_network_security_rule" "database_custom" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_network_security_rule" "private_custom" {
-  for_each = { for idx, rule in lookup(var.custom_nsg_rules, "private", []) : rule.name => rule }
+   for_each = { for idx, rule in try(var.custom_nsg_rules["private"], []) : rule.name => rule }
   
   name                        = each.value.name
   priority                    = each.value.priority
@@ -55,7 +55,7 @@ resource "azurerm_network_security_rule" "private_custom" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_network_security_rule" "application_custom" {
-  for_each = { for idx, rule in lookup(var.custom_nsg_rules, "application", []) : rule.name => rule }
+   for_each = { for idx, rule in try(var.custom_nsg_rules["application"], []) : rule.name => rule }
   
   name                        = each.value.name
   priority                    = each.value.priority
@@ -77,7 +77,7 @@ resource "azurerm_network_security_rule" "application_custom" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_network_security_rule" "aks_custom" {
-  for_each = var.enable_aks_subnet ? { for idx, rule in lookup(var.custom_nsg_rules, "aks", []) : rule.name => rule } : {}
+  for_each = var.enable_aks_subnet ? { for idx, rule in try(var.custom_nsg_rules["aks"], []) : rule.name => rule } : {}
   
   name                        = each.value.name
   priority                    = each.value.priority

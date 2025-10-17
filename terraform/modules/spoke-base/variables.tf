@@ -46,7 +46,11 @@ variable "region_code" {
 # =============================================================================
 # HUB CONNECTIVITY (Required from Hub Module)
 # =============================================================================
-
+variable "enable_vpn_gateway" {
+  description = "Whether Hub has VPN Gateway enabled"
+  type        = bool
+  default     = false
+}
 variable "hub_vnet_id" {
   description = "Hub VNet ID for peering (from Hub module output)"
   type        = string
@@ -75,26 +79,7 @@ variable "hub_location" {
 # =============================================================================
 # NETWORK CONFIGURATION
 # =============================================================================
-variable "custom_nsg_rules" {
-  description = "Custom NSG rules per subnet"
-  type = map(list(object({
-    name                       = string
-    priority                   = number
-    direction                  = string
-    access                     = string
-    protocol                   = string
-    source_port_range          = string
-    destination_port_range     = string
-    source_address_prefix      = string
-    destination_address_prefix = string
-  })))
-  default = {
-    database    = []
-    private     = []
-    application = []
-    aks         = []
-  }
-}
+
 variable "spoke_vnet_address_space" {
   description = "Address space for Spoke VNet (CIDR notation)"
   type        = list(string)
