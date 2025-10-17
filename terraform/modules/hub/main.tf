@@ -463,13 +463,14 @@ resource "azurerm_private_dns_zone" "hub" {
   name                = each.value
   resource_group_name = azurerm_resource_group.hub.name
   
-  tags = merge(
-    local.common_tags,
-    {
-      Name    = each.value
-      Purpose = "Private DNS for Azure services"
-    }
-  )
+ 
+  tags = {
+    Customer    = var.customer_id
+    Environment = var.environment
+    ManagedBy   = "Terraform"
+    Component   = "Hub-DNS"
+    Purpose     = "Private-DNS"
+  }
 }
 
 # Link DNS Zones to Hub VNet
