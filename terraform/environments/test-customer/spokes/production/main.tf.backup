@@ -1,0 +1,421 @@
+# =============================================================================
+# SPOKE + SERVICES DEPLOYMENT
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# DATA SOURCES: Get Hub and Management outputs
+# -----------------------------------------------------------------------------
+
+data "terraform_remote_state" "hub" {
+  backend = "azurerm"
+  config = {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "sttfstate78a1dec0"
+    container_name       = "tfstate"
+    key                  = "hub.tfstate"
+  }
+}
+
+data "terraform_remote_state" "management" {
+  backend = "azurerm"
+  config = {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "sttfstate78a1dec0"
+    container_name       = "tfstate"
+    key                  = "management.tfstate"
+  }
+}
+
+# -----------------------------------------------------------------------------
+# SPOKE BASE (Always Deployed)
+# -----------------------------------------------------------------------------
+
+module "spoke" {
+  source = "../../../../modules/spoke-base"
+  
+  customer_id = var.customer_id
+  environment = var.environment
+  spoke_name  = var.spoke_name
+  region      = var.region
+  region_code = var.region_code
+  
+  spoke_vnet_address_space = [var.spoke_vnet_cidr]
+  
+  # Hub connectivity
+  hub_vnet_id             = data.terraform_remote_state.hub.outputs.hub_vnet_id
+  hub_vnet_name           = data.terraform_remote_state.hub.outputs.hub_vnet_name
+  hub_resource_group_name = data.terraform_remote_state.hub.outputs.hub_resource_group_name
+  hub_firewall_private_ip = data.terraform_remote_state.hub.outputs.hub_firewall_private_ip
+  hub_location            = data.terraform_remote_state.hub.outputs.hub_location
+  
+  # Private DNS
+  private_dns_zone_ids           = data.terraform_remote_state.hub.outputs.private_dns_zone_ids
+  enable_private_dns_integration = true
+  
+  # Monitoring
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  # Cost allocation
+  cost_center        = var.cost_center
+  team               = var.team
+  chargeback_enabled = true
+  
+  tags = var.tags
+}
+
+# =============================================================================
+# SERVICES (Conditional - Deploy Based on Flags)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# SQL DATABASE
+# -----------------------------------------------------------------------------
+
+module "sql" {
+  count  = var.enable_sql ? 1 : 0
+  source = "../../../../modules/services/sql"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  database_name          = var.sql_database_name
+  administrator_login    = var.sql_admin_username
+  administrator_password = var.sql_admin_password
+  
+  sku_name                    = var.sql_sku_name
+  min_capacity                = var.sql_min_capacity
+  auto_pause_delay_in_minutes = var.sql_auto_pause_delay
+  
+  subnet_id           = module.spoke.private_subnet_id
+  private_dns_zone_id = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.database.windows.net"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# KEY VAULT
+# -----------------------------------------------------------------------------
+
+module "keyvault" {
+  count  = var.enable_keyvault ? 1 : 0
+  source = "../../../../modules/services/keyvault"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  enable_rbac_authorization = true
+  purge_protection_enabled  = var.keyvault_purge_protection
+  
+  subnet_id           = module.spoke.private_subnet_id
+  private_dns_zone_id = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.vaultcore.azure.net"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+# -----------------------------------------------------------------------------
+# DATA LAKE GEN2 (STORAGE)
+# -----------------------------------------------------------------------------
+
+module "datalake" {
+  count  = var.enable_storage ? 1 : 0
+  source = "../../../../modules/services/datalake"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  enable_hierarchical_namespace = var.storage_enable_data_lake
+  account_replication_type      = var.storage_replication_type
+  
+  subnet_id = module.spoke.private_subnet_id
+  private_dns_zone_ids = {
+    blob = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.blob.core.windows.net"]
+    dfs  = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.dfs.core.windows.net"]
+    file = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.file.core.windows.net"]
+  }
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# DATA FACTORY
+# -----------------------------------------------------------------------------
+
+module "datafactory" {
+  count  = var.enable_datafactory ? 1 : 0
+  source = "../../../../modules/services/datafactory"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  managed_virtual_network_enabled = true
+  
+  subnet_id           = module.spoke.private_subnet_id
+  private_dns_zone_id = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.datafactory.azure.net"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# SYNAPSE ANALYTICS
+# -----------------------------------------------------------------------------
+
+module "synapse" {
+  count  = var.enable_synapse ? 1 : 0
+  source = "../../../../modules/services/synapse"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  sql_admin_username = var.synapse_sql_admin_username
+  sql_admin_password = var.synapse_sql_admin_password
+  
+  enable_sql_pool   = var.synapse_enable_sql_pool
+  enable_spark_pool = var.synapse_enable_spark_pool
+  
+  spark_node_size      = var.synapse_spark_node_size
+  spark_node_count_min = var.synapse_spark_node_count_min
+  spark_node_count_max = var.synapse_spark_node_count_max
+  
+  subnet_id              = module.spoke.private_subnet_id
+  private_dns_zone_id_sql = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.sql.azuresynapse.net"]
+  private_dns_zone_id_dev = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.dev.azuresynapse.net"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# COSMOS DB
+# -----------------------------------------------------------------------------
+
+module "cosmosdb" {
+  count  = var.enable_cosmosdb ? 1 : 0
+  source = "../../../../modules/services/cosmosdb"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  cosmos_db_kind    = var.cosmosdb_kind
+  consistency_level = var.cosmosdb_consistency_level
+  
+  sql_databases  = var.cosmosdb_sql_databases
+  sql_containers = var.cosmosdb_sql_containers
+  
+  subnet_id           = module.spoke.private_subnet_id
+  private_dns_zone_id = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.documents.azure.com"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# AZURE ML
+# -----------------------------------------------------------------------------
+
+module "ml" {
+  count  = var.enable_ml ? 1 : 0
+  source = "../../../../modules/services/ml"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  enable_hbi_workspace      = var.ml_enable_hbi
+  enable_container_registry = var.ml_enable_acr
+  
+  compute_clusters = var.ml_compute_clusters
+  
+  subnet_id                   = module.spoke.private_subnet_id
+  private_dns_zone_id_ml      = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.api.azureml.ms"]
+  private_dns_zone_id_storage = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.blob.core.windows.net"]
+  private_dns_zone_id_acr     = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.azurecr.io"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# COGNITIVE SEARCH
+# -----------------------------------------------------------------------------
+
+module "cognitive_search" {
+  count  = var.enable_cognitive_search ? 1 : 0
+  source = "../../../../modules/services/cognitive-search"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  search_sku       = var.cognitive_search_sku
+  replica_count    = var.cognitive_search_replica_count
+  partition_count  = var.cognitive_search_partition_count
+  
+  subnet_id           = module.spoke.private_subnet_id
+  private_dns_zone_id = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.search.windows.net"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# AZURE FUNCTIONS
+# -----------------------------------------------------------------------------
+
+module "functions" {
+  count  = var.enable_functions ? 1 : 0
+  source = "../../../../modules/services/functions"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  os_type   = var.functions_os_type
+  plan_type = var.functions_plan_type
+  runtime   = var.functions_runtime
+  
+  vnet_integration_subnet_id  = module.spoke.application_subnet_id
+  private_endpoint_subnet_id  = module.spoke.private_subnet_id
+  private_dns_zone_id         = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.azurewebsites.net"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# EVENT HUB
+# -----------------------------------------------------------------------------
+
+module "eventhub" {
+  count  = var.enable_eventhub ? 1 : 0
+  source = "../../../../modules/services/eventhub"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  sku      = var.eventhub_sku
+  capacity = var.eventhub_capacity
+  
+  event_hubs      = var.eventhub_hubs
+  consumer_groups = var.eventhub_consumer_groups
+  
+  subnet_id           = module.spoke.private_subnet_id
+  private_dns_zone_id = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.servicebus.windows.net"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# STREAM ANALYTICS
+# -----------------------------------------------------------------------------
+
+module "stream_analytics" {
+  count  = var.enable_stream_analytics ? 1 : 0
+  source = "../../../../modules/services/stream-analytics"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  streaming_units      = var.stream_analytics_streaming_units
+  transformation_query = var.stream_analytics_query
+  
+  eventhub_inputs = var.stream_analytics_eventhub_inputs
+  blob_outputs    = var.stream_analytics_blob_outputs
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
+
+# -----------------------------------------------------------------------------
+# PURVIEW
+# -----------------------------------------------------------------------------
+
+module "purview" {
+  count  = var.enable_purview ? 1 : 0
+  source = "../../../../modules/services/purview"
+  
+  customer_id         = var.customer_id
+  environment         = var.environment
+  spoke_name          = var.spoke_name
+  region              = var.region
+  region_code         = var.region_code
+  resource_group_name = module.spoke.resource_group_name
+  
+  storage_account_ids = var.purview_storage_account_ids
+  sql_server_ids      = var.purview_sql_server_ids
+  
+  subnet_id                   = module.spoke.private_subnet_id
+  private_dns_zone_id_account = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.purview.azure.com"]
+  private_dns_zone_id_portal  = data.terraform_remote_state.hub.outputs.private_dns_zone_ids["privatelink.purviewstudio.azure.com"]
+  
+  log_analytics_workspace_id = data.terraform_remote_state.management.outputs.central_workspace_id
+  
+  cost_center = var.cost_center
+  team        = var.team
+}
