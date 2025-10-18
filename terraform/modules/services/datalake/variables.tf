@@ -106,17 +106,17 @@ variable "allow_nested_items_to_be_public" {
 
 variable "shared_access_key_enabled" {
   type    = bool
-  default = false
+  default = true
 }
 
 variable "public_network_access_enabled" {
   type    = bool
-  default = false
+  default = true
 }
 
 variable "default_to_oauth_authentication" {
   type    = bool
-  default = true
+  default = false
 }
 
 # =============================================================================

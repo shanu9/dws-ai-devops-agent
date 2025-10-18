@@ -71,7 +71,7 @@ variable "partition_count" {
 variable "public_network_access_enabled" {
   description = "Enable public network access"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "allowed_ip_ranges" {

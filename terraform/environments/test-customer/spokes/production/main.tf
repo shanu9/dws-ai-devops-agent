@@ -6,6 +6,7 @@ data "terraform_remote_state" "hub" {
     storage_account_name = "sttfstate78a1dec0"
     container_name       = "tfstate"
     key                  = "hub.tfstate"
+    subscription_id      = "a177f15d-854f-4856-bba5-fd97bfbea053"  
   }
 }
 
@@ -16,6 +17,7 @@ data "terraform_remote_state" "management" {
     storage_account_name = "sttfstate78a1dec0"
     container_name       = "tfstate"
     key                  = "management.tfstate"
+    subscription_id      = "a177f15d-854f-4856-bba5-fd97bfbea053"  
   }
 }
 

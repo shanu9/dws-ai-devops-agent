@@ -653,19 +653,16 @@ resource "azurerm_virtual_network_peering" "spoke_to_hub" {
 
 # Hub to Spoke peering
 resource "azurerm_virtual_network_peering" "hub_to_spoke" {
-  name                         = local.hub_to_spoke_peering_name
-  resource_group_name          = var.hub_resource_group_name
-  virtual_network_name         = var.hub_vnet_name
-  remote_virtual_network_id    = azurerm_virtual_network.spoke.id
+  provider = azurerm.hub  
+  
+  name                      = "peer-hub-to-${var.spoke_name}"
+  resource_group_name       = var.hub_resource_group_name
+  virtual_network_name      = var.hub_vnet_name
+  remote_virtual_network_id = azurerm_virtual_network.spoke.id
   
   allow_virtual_network_access = true
   allow_forwarded_traffic      = true
-  allow_gateway_transit        = !var.allow_gateway_transit # Hub provides gateway
-  use_remote_gateways          = false
-  
-  depends_on = [
-    azurerm_virtual_network_peering.spoke_to_hub
-  ]
+  allow_gateway_transit        = var.enable_vpn_gateway
 }
 
 # =============================================================================
@@ -673,19 +670,15 @@ resource "azurerm_virtual_network_peering" "hub_to_spoke" {
 # =============================================================================
 
 resource "azurerm_private_dns_zone_virtual_network_link" "spoke" {
+  provider = azurerm.hub
+  
   for_each = var.enable_private_dns_integration ? var.private_dns_zone_ids : {}
   
   name                  = "link-${var.spoke_name}-${each.key}"
   resource_group_name   = var.hub_resource_group_name
-  private_dns_zone_name = split("/", each.value)[8] # Extract zone name from ID
+  private_dns_zone_name = basename(each.value)  
   virtual_network_id    = azurerm_virtual_network.spoke.id
   registration_enabled  = false
-  
-  tags = local.common_tags
-  
-  depends_on = [
-    azurerm_virtual_network_peering.spoke_to_hub
-  ]
 }
 
 # =============================================================================

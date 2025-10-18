@@ -4,6 +4,7 @@ terraform {
     storage_account_name = "sttfstate78a1dec0"
     container_name       = "tfstate"
     key                  = "hub.tfstate"
+    subscription_id      = "a177f15d-854f-4856-bba5-fd97bfbea053"  # ✅ CRITICAL: State is in Management subscription
   }
   
   required_version = ">= 1.5.0"
@@ -25,4 +26,6 @@ provider "azurerm" {
       prevent_deletion_if_contains_resources = false
     }
   }
+  
+  subscription_id = "a177f15d-854f-4856-bba5-fd97bfbea053" 
 }

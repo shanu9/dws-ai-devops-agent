@@ -50,14 +50,15 @@ resource "azurerm_storage_account" "main" {
   
   # Network rules
   network_rules {
-    default_action = "Deny"
+    default_action = "Allow"
     bypass         = ["AzureServices"]
   }
   
   # Blob properties
-  blob_properties {
-    versioning_enabled  = var.enable_versioning
-    change_feed_enabled = var.change_feed_enabled
+ blob_properties {
+  versioning_enabled  = var.enable_hierarchical_namespace ? false : var.enable_versioning  
+  change_feed_enabled = var.change_feed_enabled
+
     
     delete_retention_policy {
       days = var.delete_retention_days
@@ -71,7 +72,11 @@ resource "azurerm_storage_account" "main" {
   identity {
     type = "SystemAssigned"
   }
-  
+  lifecycle {
+    ignore_changes = [
+      static_website  # Ignore static website (not supported with Data Lake Gen2)
+    ]
+  }
   tags = local.common_tags
 }
 

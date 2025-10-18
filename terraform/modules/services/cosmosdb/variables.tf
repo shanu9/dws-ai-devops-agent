@@ -217,7 +217,7 @@ variable "backup_storage_redundancy" {
 variable "public_network_access_enabled" {
   description = "Enable public network access"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_vnet_filter" {

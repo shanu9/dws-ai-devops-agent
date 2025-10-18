@@ -138,7 +138,6 @@ resource "azurerm_synapse_workspace" "main" {
 # -----------------------------------------------------------------------------
 # SYNAPSE SQL POOL (Dedicated - Optional, High Cost)
 # -----------------------------------------------------------------------------
-
 resource "azurerm_synapse_sql_pool" "main" {
   count = var.enable_sql_pool ? 1 : 0
   
@@ -147,19 +146,9 @@ resource "azurerm_synapse_sql_pool" "main" {
   sku_name             = var.sql_pool_sku
   create_mode          = "Default"
   
-  # Cost optimization: Auto-pause when idle
-  auto_pause {
-    delay_in_minutes = var.sql_pool_auto_pause_delay
-  }
-  
-  # Auto-scale settings
-  dynamic "auto_scale" {
-    for_each = var.enable_sql_pool_autoscale ? [1] : []
-    content {
-      max_node_count = var.sql_pool_max_size_gb / 100 # Rough estimate
-      min_node_count = var.sql_pool_min_size_gb / 100
-    }
-  }
+  # Note: Auto-pause and auto-scale are managed via Azure portal or API
+  # The Terraform provider v3.x doesn't support these blocks
+  # Configure via Azure Policy or ARM templates if needed
   
   tags = local.common_tags
 }
